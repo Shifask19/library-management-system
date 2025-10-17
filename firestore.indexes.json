@@ -1,4 +1,3 @@
-
 {
   "indexes": [
     {
@@ -23,7 +22,6 @@
       "queryScope": "COLLECTION",
       "fields": [
         { "fieldPath": "donatedBy.userId", "order": "ASCENDING" },
-        { "fieldPath": "status", "order": "ASCENDING" },
         { "fieldPath": "donatedBy.date", "order": "DESCENDING" }
       ]
     },

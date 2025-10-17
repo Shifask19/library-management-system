@@ -1,4 +1,3 @@
-
 "use client";
 
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
@@ -11,8 +10,9 @@ import { PageHeader } from "../shared/PageHeader";
 import { useSearchParams, useRouter, usePathname } from "next/navigation";
 import { useEffect, useState } from "react";
 import type { User } from '@/types'; // Import User type
-// import { auth, db } from '@/lib/firebase'; // For real auth
-// import { doc, getDoc } from 'firebase/firestore'; // For real auth
+import { auth, db } from '@/lib/firebase'; // For real auth
+import { doc, getDoc } from 'firebase/firestore'; // For real auth
+import { onAuthStateChanged } from 'firebase/auth'; // For real auth
 
 export function UserDashboardClient() {
   const searchParams = useSearchParams();
@@ -21,34 +21,72 @@ export function UserDashboardClient() {
   const initialTab = searchParams.get('tab') || 'issued-books';
   const [activeTab, setActiveTab] = useState(initialTab);
 
-  // Placeholder for current user. In a real app, fetch from auth context/hook.
   const [currentUser, setCurrentUser] = useState<User | null>(null);
+  const [authLoading, setAuthLoading] = useState(true);
   const [pageTitleUserName, setPageTitleUserName] = useState<string>("User");
 
   useEffect(() => {
-    // Simulate fetching user data. Replace with actual auth logic.
-    const mockUser: User = { id: 'user1', email: 'user1@example.com', role: 'user', name: 'Student of PES College (Mock)' };
-    setCurrentUser(mockUser);
-    setPageTitleUserName(mockUser.name || 'User');
+    // Listen for auth state changes
+    const unsubscribe = onAuthStateChanged(auth, async (user) => {
+      if (user && db) {
+        // User is signed in, see docs for a list of available properties
+        // https://firebase.google.com/docs/reference/js/firebase.User
+        const userDocRef = doc(db, 'users', user.uid);
+        const userDoc = await getDoc(userDocRef);
+        if (userDoc.exists()) {
+          const userData = { id: user.uid, ...userDoc.data() } as User;
+          setCurrentUser(userData);
+          setPageTitleUserName(userData.name || user.email || 'User');
+        } else {
+          // User exists in auth but not in firestore
+           setCurrentUser(null);
+           router.push('/login/user');
+        }
+      } else {
+        // User is signed out
+        setCurrentUser(null);
+        router.push('/login/user');
+      }
+      setAuthLoading(false);
+    });
 
+    // Cleanup subscription on unmount
+    return () => unsubscribe();
+  }, [router]);
+
+  useEffect(() => {
     // Handle tab changes from URL
     const tabFromQuery = searchParams.get('tab') || 'issued-books';
     if (tabFromQuery !== activeTab) {
       setActiveTab(tabFromQuery);
     }
-  }, [searchParams, activeTab]); // Dependencies for tab sync
+  }, [searchParams, activeTab]);
 
   const onTabChange = (value: string) => {
     setActiveTab(value);
     router.push(`${pathname}?tab=${value}`, { scroll: false });
   };
+  
+  if (authLoading || !currentUser) {
+    return (
+        <div className="space-y-8">
+            <div className="mb-6 sm:mb-8">
+                <div className="h-10 w-1/3 bg-muted rounded-md animate-pulse"></div>
+                <div className="h-6 w-1/2 mt-2 bg-muted rounded-md animate-pulse"></div>
+            </div>
+            <div className="h-12 w-full bg-muted rounded-md animate-pulse"></div>
+            <div className="mt-6 grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-6">
+                {[1, 2, 3].map(i => <div key={i} className="h-64 w-full bg-muted rounded-lg animate-pulse" />)}
+            </div>
+        </div>
+    );
+  }
 
   return (
     <div className="space-y-8">
        <PageHeader 
         title={`Welcome, ${pageTitleUserName}!`}
         description="Manage your library activities here."
-        // actions={activeTab === 'history' ? <ExportHistoryButton /> : undefined} // ExportHistoryButton is not defined yet
       />
       <Tabs value={activeTab} onValueChange={onTabChange} className="w-full">
         <TabsList className="grid w-full grid-cols-2 sm:grid-cols-4 gap-2 h-auto p-1">
@@ -76,7 +114,7 @@ export function UserDashboardClient() {
           <DonateBookTab currentUser={currentUser} />
         </TabsContent>
         <TabsContent value="history" className="mt-6">
-          <DonationHistoryTab />
+          <DonationHistoryTab currentUser={currentUser} />
         </TabsContent>
       </Tabs>
     </div>
