@@ -7,10 +7,10 @@ import { BookCard } from '@/components/shared/BookCard';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
-import { AlertTriangle, BookOpenCheck, Search, RefreshCcw, Loader2 as SpinnerIcon, Undo } from 'lucide-react';
+import { BookOpenCheck, Search, RefreshCcw, Loader2 as SpinnerIcon, Undo } from 'lucide-react';
 import { useToast } from '@/hooks/use-toast';
 import { db } from '@/lib/firebase.ts';
-import { collection, query, where, orderBy, getDocs, doc, updateDoc, addDoc } from 'firebase/firestore';
+import { collection, query, where, orderBy, getDocs, doc, updateDoc, addDoc, serverTimestamp, deleteField } from 'firebase/firestore';
 import { Skeleton } from '@/components/ui/skeleton';
 import { ConfirmationDialog } from '@/components/shared/ConfirmationDialog';
 
@@ -26,7 +26,7 @@ async function logTransaction(transactionData: Omit<import('@/types').Transactio
   try {
     await addDoc(collection(db, "transactions"), {
       ...transactionData,
-      timestamp: new Date().toISOString(),
+      timestamp: serverTimestamp(),
     });
   } catch (error) {
     console.error("Error logging transaction:", error);
@@ -34,7 +34,7 @@ async function logTransaction(transactionData: Omit<import('@/types').Transactio
 }
 
 const isBookOverdue = (book: Book): boolean => {
-  if (book.status === 'issued' && book.issueDetails) {
+  if (book.status === 'issued' && book.issueDetails?.dueDate) {
     const dueDate = new Date(book.issueDetails.dueDate);
     const now = new Date();
     // Compare date parts only
@@ -44,7 +44,6 @@ const isBookOverdue = (book: Book): boolean => {
   }
   return false;
 };
-
 
 export function IssuedBooksTab({ currentUser }: IssuedBooksTabProps) {
   const [userBooks, setUserBooks] = useState<Book[]>([]);
@@ -85,7 +84,7 @@ export function IssuedBooksTab({ currentUser }: IssuedBooksTabProps) {
       if (error.code === 'failed-precondition') {
         setTimeout(() => toast({
           title: "Index Required",
-          description: "The query for issued books requires an index. Please deploy Firestore indexes.",
+          description: "An index is required for this query. Please deploy Firestore indexes.",
           variant: "destructive",
           duration: 10000,
         }), 0);
@@ -106,7 +105,7 @@ export function IssuedBooksTab({ currentUser }: IssuedBooksTabProps) {
     }
     
     const bookToRenew = userBooks.find(b => b.id === bookId);
-    if (!bookToRenew || !bookToRenew.issueDetails) {
+    if (!bookToRenew || !bookToRenew.issueDetails?.dueDate) {
       toast({ title: "Renewal Failed", description: "Book or issue details not found.", variant: "destructive" });
       return;
     }
@@ -157,7 +156,7 @@ export function IssuedBooksTab({ currentUser }: IssuedBooksTabProps) {
     try {
       await updateDoc(bookRef, {
         status: 'available',
-        issueDetails: null, // Or deleteField() for cleaner removal
+        issueDetails: deleteField(),
       });
 
       await logTransaction({
@@ -190,7 +189,7 @@ export function IssuedBooksTab({ currentUser }: IssuedBooksTabProps) {
 
       if (filter === 'all') return true;
       
-      if (!book.issueDetails) return false; // Should not happen if status is 'issued'
+      if (!book.issueDetails?.dueDate) return false;
       const dueDate = new Date(book.issueDetails.dueDate);
       const today = new Date();
       today.setHours(0, 0, 0, 0); 
@@ -269,20 +268,21 @@ export function IssuedBooksTab({ currentUser }: IssuedBooksTabProps) {
                   onConfirm={() => handleRenewBook(book.id, book.title)}
                   confirmText="Yes, Renew"
                 />
-                <ConfirmationDialog
+                 <ConfirmationDialog
                   triggerButton={
                     <Button
                       className="w-full"
-                      variant="default"
+                      variant="destructive"
                       disabled={!currentUser}
                     >
-                      <Undo className="mr-2 h-4 w-4" /> Return Book
+                      <Undo className="mr-2 h-4 w-4" /> This button is a placeholder
                     </Button>
                   }
-                  title="Confirm Book Return"
-                  description={`Are you sure you want to return "${book.title}"?`}
-                  onConfirm={() => handleReturnBook(book.id, book.title)}
-                  confirmText="Yes, Return"
+                  title="Return Book to Admin"
+                  description={`To return "${book.title}", please bring it to the library circulation desk. This action cannot be performed online.`}
+                  onConfirm={() => {}}
+                  confirmText="Acknowledge"
+                  cancelText=''
                 />
               </div>
             </BookCard>

@@ -14,25 +14,26 @@ export interface Book {
   author: string;
   isbn: string;
   coverImageUrl?: string; // URL to cover image
-  status: 'available' | 'issued' | 'donated_pending_approval' | 'donated_approved' | 'lost' | 'maintenance';
+  status: 'available' | 'issued' | 'donated_pending_approval' | 'donated_approved' | 'lost' | 'maintenance' | 'issue_requested';
   category?: string;
   publishedDate?: string; // Consider storing as ISO string or just year
   description?: string;
   donatedBy?: {
     userId: string;
     userName: string; 
-    date: string; // ISO string
+    date: any; // ISO string or ServerTimestamp
   };
   issueDetails?: {
     userId: string;
     userName: string;
-    issueDate: string; // ISO string
+    issueDate: any; // ISO string or ServerTimestamp
     dueDate: string; // ISO string
     returnedDate?: string; // ISO string
   };
   tags?: string[];
   copies?: number; // If managing multiple copies of the same book
   location?: string; // Shelf number, section etc.
+  dataAiHint?: string;
 }
 
 export interface Transaction {
@@ -41,8 +42,8 @@ export interface Transaction {
   bookTitle: string; 
   userId: string;
   userName: string;
-  type: 'issue' | 'return' | 'donate_request' | 'donate_approve' | 'donate_reject' | 'fine_paid' | 'renewal';
-  timestamp: string; // ISO string
+  type: 'issue' | 'return' | 'donate_request' | 'donate_approve' | 'donate_reject' | 'fine_paid' | 'renewal' | 'issue_request' | 'issue_reject';
+  timestamp: any; // ISO string or ServerTimestamp
   dueDate?: string; // ISO string, for issue transactions
   notes?: string;
   fineAmount?: number;
@@ -64,7 +65,8 @@ export type BookStatusVariant =
   | "pending_approval"
   | "donated"
   | "lost"
-  | "maintenance";
+  | "maintenance"
+  | "issue_requested";
 
 export interface BookStatusPillDetail {
   text: string;

@@ -11,7 +11,7 @@ import { Card, CardContent, CardDescription, CardFooter, CardHeader, CardTitle }
 import { Gift, Loader2 } from 'lucide-react';
 import Image from 'next/image';
 import { db } from '@/lib/firebase.ts';
-import { collection, addDoc } from "firebase/firestore";
+import { collection, addDoc, serverTimestamp } from "firebase/firestore";
 import type { User, Book } from '@/types';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 
@@ -28,7 +28,7 @@ async function logTransaction(transactionData: Omit<import('@/types').Transactio
   try {
     await addDoc(collection(db, "transactions"), {
       ...transactionData,
-      timestamp: new Date().toISOString(),
+      timestamp: serverTimestamp(),
     });
   } catch (error) {
     console.error("Error logging transaction:", error);
@@ -58,7 +58,6 @@ export function DonateBookTab({ currentUser }: DonateBookTabProps) {
     }
     setIsLoading(true);
 
-    const donationDate = new Date().toISOString();
     const newBookData: Omit<Book, 'id'> = {
       title,
       author,
@@ -71,7 +70,7 @@ export function DonateBookTab({ currentUser }: DonateBookTabProps) {
       donatedBy: {
         userId: currentUser.id,
         userName: currentUser.name || currentUser.email || 'Anonymous User',
-        date: donationDate,
+        date: serverTimestamp(),
       },
     };
 

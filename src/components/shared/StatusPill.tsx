@@ -1,6 +1,6 @@
 import type { Book, BookStatusPillDetail, BookStatusVariant } from '@/types';
 import { cn } from '@/lib/utils';
-import { AlertTriangle, BookOpenCheck, CheckCircle, Clock, Gift, HelpCircle, Loader2, XCircle } from 'lucide-react';
+import { AlertTriangle, BookOpenCheck, CheckCircle, Clock, Gift, HelpCircle, Loader2, XCircle, BellRing } from 'lucide-react';
 
 const getStatusDetails = (book: Book): BookStatusPillDetail => {
   const now = new Date();
@@ -17,7 +17,10 @@ const getStatusDetails = (book: Book): BookStatusPillDetail => {
   } else if (book.status === 'donated_pending_approval') {
     variant = 'pending_approval';
   } else if (book.status === 'donated_approved') {
-    variant = 'donated';
+    // If it's donated approved, we treat it as 'available' for pill purposes
+    variant = 'available';
+  } else if (book.status === 'issue_requested') {
+    variant = 'issue_requested';
   }
 
   switch (variant) {
@@ -31,7 +34,9 @@ const getStatusDetails = (book: Book): BookStatusPillDetail => {
       return { text: 'Due Soon', bgColorClass: 'bg-yellow-100 dark:bg-yellow-800', textColorClass: 'text-yellow-700 dark:text-yellow-200', icon: Clock };
     case 'pending_approval':
       return { text: 'Pending Approval', bgColorClass: 'bg-purple-100 dark:bg-purple-900', textColorClass: 'text-purple-700 dark:text-purple-300', icon: HelpCircle };
-    case 'donated':
+    case 'issue_requested':
+      return { text: 'Issue Requested', bgColorClass: 'bg-orange-100 dark:bg-orange-900', textColorClass: 'text-orange-700 dark:text-orange-300', icon: BellRing };
+    case 'donated': // This case is mostly for logic, UI might show 'Available'
       return { text: 'Donated', bgColorClass: 'bg-teal-100 dark:bg-teal-900', textColorClass: 'text-teal-700 dark:text-teal-300', icon: Gift };
     case 'lost':
       return { text: 'Lost', bgColorClass: 'bg-slate-200 dark:bg-slate-700', textColorClass: 'text-slate-600 dark:text-slate-300', icon: XCircle };

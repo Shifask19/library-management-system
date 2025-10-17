@@ -7,10 +7,10 @@ import { BookCard } from '@/components/shared/BookCard';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
-import { Search, Library, Loader2 as SpinnerIcon, AlertCircle } from 'lucide-react';
+import { Search, Library, Loader2 as SpinnerIcon, BellRing } from 'lucide-react';
 import { useToast } from '@/hooks/use-toast';
 import { db } from '@/lib/firebase.ts';
-import { collection, getDocs, doc, updateDoc, query, where, orderBy, addDoc } from "firebase/firestore";
+import { collection, getDocs, doc, updateDoc, query, where, orderBy, addDoc, serverTimestamp } from "firebase/firestore";
 import { Skeleton } from '@/components/ui/skeleton';
 import { ConfirmationDialog } from '../shared/ConfirmationDialog';
 
@@ -24,7 +24,7 @@ async function logTransaction(transactionData: Omit<import('@/types').Transactio
   try {
     await addDoc(collection(db, "transactions"), {
       ...transactionData,
-      timestamp: new Date().toISOString(),
+      timestamp: serverTimestamp(),
     });
   } catch (error) {
     console.error("Error logging transaction:", error);
@@ -32,7 +32,6 @@ async function logTransaction(transactionData: Omit<import('@/types').Transactio
 }
 
 const bookCategories = ["All", "Computer Science", "Fiction", "Science", "History", "Mathematics", "Engineering", "Literature", "Thriller", "Physics", "Electronics", "Other"];
-
 
 export function BrowseBooksTab({ currentUser }: BrowseBooksTabProps) {
   const [allBooks, setAllBooks] = useState<Book[]>([]);
@@ -48,10 +47,8 @@ export function BrowseBooksTab({ currentUser }: BrowseBooksTabProps) {
       return;
     }
     setIsLoading(true);
-    console.log("BrowseBooksTab: Querying Firestore for books with status 'available' or 'donated_approved'.");
     try {
       const booksCollection = collection(db, "books");
-      // Query for books with status 'available' or 'donated_approved'
       const q = query(
         booksCollection,
         where("status", "in", ["available", "donated_approved"]),
@@ -59,15 +56,8 @@ export function BrowseBooksTab({ currentUser }: BrowseBooksTabProps) {
       );
       const booksSnapshot = await getDocs(q);
       const booksList = booksSnapshot.docs.map(doc => ({ id: doc.id, ...doc.data() } as Book));
-      console.log(`BrowseBooksTab: Fetched books count from Firestore: ${booksList.length}`);
-      if (booksList.length > 0) {
-        // console.log('BrowseBooksTab: First fetched book from Firestore:', JSON.stringify(booksList[0])); // Optionally log first book for debugging
-      } else {
-        console.log('BrowseBooksTab: No books with status "available" or "donated_approved" found in Firestore based on the current query.');
-      }
       setAllBooks(booksList);
     } catch (error: any) {
-      console.error("Error fetching available books:", error);
        setTimeout(() => toast({
         title: "Error Fetching Books",
         description: error.message || "Could not load available books.",
@@ -76,7 +66,7 @@ export function BrowseBooksTab({ currentUser }: BrowseBooksTabProps) {
        if (error.code === 'failed-precondition') {
         setTimeout(() => toast({
           title: "Index Required",
-          description: "The query for available books requires an index: 'books' collection, fields: status (ASC), title (ASC). Please check Firestore indexes.",
+          description: "An index is required for this query. Please deploy firestore indexes.",
           variant: "destructive",
           duration: 10000,
         }), 0);
@@ -90,9 +80,9 @@ export function BrowseBooksTab({ currentUser }: BrowseBooksTabProps) {
     fetchAvailableBooks();
   }, [fetchAvailableBooks]);
 
-  const handleIssueBook = async (bookId: string, bookTitle: string) => {
+  const handleRequestIssue = async (bookId: string, bookTitle: string) => {
     if (!currentUser) {
-      toast({ title: "Login Required", description: "You must be logged in to issue a book.", variant: "destructive" });
+      toast({ title: "Login Required", description: "You must be logged in to request a book.", variant: "destructive" });
       return;
     }
     if (!db) {
@@ -101,37 +91,38 @@ export function BrowseBooksTab({ currentUser }: BrowseBooksTabProps) {
     }
 
     const bookRef = doc(db, "books", bookId);
-    const issueDate = new Date();
-    const dueDate = new Date(issueDate);
-    dueDate.setDate(issueDate.getDate() + 14); // Due in 14 days
-
-    const issueDetails = {
+    
+    // This is a simplified `issueDetails` for the request phase.
+    // The final `dueDate` will be set by the admin upon approval.
+    const requestDetails = {
       userId: currentUser.id,
       userName: currentUser.name || currentUser.email || 'User',
-      issueDate: issueDate.toISOString(),
-      dueDate: dueDate.toISOString(),
+      issueDate: serverTimestamp(), // Marks the request time
+      dueDate: null, // To be set upon approval
     };
 
     try {
-      await updateDoc(bookRef, { status: 'issued', issueDetails });
+      await updateDoc(bookRef, { 
+        status: 'issue_requested', 
+        issueDetails: requestDetails 
+      });
 
       await logTransaction({
         bookId: bookId,
         bookTitle: bookTitle,
         userId: currentUser.id,
         userName: currentUser.name || currentUser.email || 'User',
-        type: 'issue',
-        dueDate: dueDate.toISOString(),
+        type: 'issue_request',
       });
 
       toast({
-        title: "Book Issued!",
-        description: `"${bookTitle}" has been issued to you. Due Date: ${dueDate.toLocaleDateString()}.`,
+        title: "Request Sent!",
+        description: `Your request to issue "${bookTitle}" has been sent for admin approval.`,
       });
-      fetchAvailableBooks(); // Refresh the list of available books
+      fetchAvailableBooks(); // Refresh list to remove the requested book
     } catch (error) {
-      console.error("Error issuing book:", error);
-      toast({ title: "Error Issuing Book", description: "Could not issue the book. Please try again.", variant: "destructive" });
+      console.error("Error requesting book issue:", error);
+      toast({ title: "Error Sending Request", description: "Could not send your request. Please try again.", variant: "destructive" });
     }
   };
 
@@ -193,24 +184,22 @@ export function BrowseBooksTab({ currentUser }: BrowseBooksTabProps) {
             <BookCard
               key={book.id}
               book={book}
-              actionLabel="Issue This Book"
-              onAction={() => { /* This will be handled by ConfirmationDialog's onConfirm */ }}
-              actionDisabled={!currentUser}
             >
               <ConfirmationDialog
                 triggerButton={
                   <Button
                     className="w-full mt-2"
                     variant="default"
-                    disabled={!currentUser || book.status !== 'available' && book.status !== 'donated_approved'}
+                    disabled={!currentUser || (book.status !== 'available' && book.status !== 'donated_approved')}
                   >
-                    Issue This Book
+                    <BellRing className="mr-2 h-4 w-4" />
+                    Request to Issue
                   </Button>
                 }
-                title="Confirm Book Issue"
-                description={`Are you sure you want to issue "${book.title}"? It will be due in 14 days.`}
-                onConfirm={() => handleIssueBook(book.id, book.title)}
-                confirmText="Yes, Issue Book"
+                title="Confirm Issue Request"
+                description={`Are you sure you want to request to issue "${book.title}"? An admin will need to approve it.`}
+                onConfirm={() => handleRequestIssue(book.id, book.title)}
+                confirmText="Yes, Send Request"
               />
             </BookCard>
           ))}
@@ -222,11 +211,10 @@ export function BrowseBooksTab({ currentUser }: BrowseBooksTabProps) {
           <p className="text-muted-foreground">
             {searchTerm || categoryFilter !== 'all'
               ? "No books match your current search or filter criteria."
-              : "No books are currently marked as 'available' or 'donated_approved' in the library system. Please check back later or contact an admin."}
+              : "No books are currently available for issue in the library system."}
           </p>
         </div>
       )}
     </div>
   );
 }
-

@@ -1,116 +1,98 @@
-
 rules_version = '2';
 
 service cloud.firestore {
   match /databases/{database}/documents {
-
-    // Helper Functions
-    function isAuthenticated() {
+    
+    // --- Helper Functions ---
+    function isSignedIn() {
       return request.auth != null;
     }
-
-    function isUser(userId) {
-      return isAuthenticated() && request.auth.uid == userId;
-    }
-
-    function getUserRole(userId) {
-      return get(/databases/$(database)/documents/users/$(userId)).data.role;
+    
+    function isUser() {
+      return isSignedIn() && get(/databases/$(database)/documents/users/$(request.auth.uid)).data.role == 'user';
     }
 
     function isAdmin() {
-      return isAuthenticated() && getUserRole(request.auth.uid) == 'admin';
+      return isSignedIn() && get(/databases/$(database)/documents/users/$(request.auth.uid)).data.role == 'admin';
     }
 
-    function isNewUserDoc(userId) {
-      return isUser(userId) && !exists(/databases/$(database)/documents/users/$(userId));
+    function isOwner(userId) {
+      return request.auth.uid == userId;
+    }
+
+    // --- Users Collection Rules ---
+    match /users/{userId} {
+      // READ: Admins can read all user profiles. Users can read their own.
+      allow read: if isAdmin() || (isUser() && isOwner(userId));
+      
+      // CREATE: A user can create their own user document (e.g., on signup).
+      // The role must be 'user', and the UID must match.
+      allow create: if isSignedIn() && isOwner(userId)
+                    && request.resource.data.role == 'user'
+                    // ensure required fields are present
+                    && 'email' in request.resource.data
+                    && 'createdAt' in request.resource.data
+                    && request.resource.data.createdAt == request.time;
+      
+      // UPDATE: Admins can update any user. Users can only update their own `name`.
+      // Roles cannot be changed by users.
+      allow update: if isAdmin() || (isUser() && isOwner(userId)
+                    && request.resource.data.name == resource.data.name
+                    && request.resource.data.role == resource.data.role); // Can't change role
+      
+      // DELETE: Only admins can delete user documents.
+      allow delete: if isAdmin();
+    }
+
+    // --- Books Collection Rules ---
+    match /books/{bookId} {
+      // READ: Any signed-in user can read book data.
+      allow read: if isSignedIn();
+      
+      // CREATE: 
+      // 1. Admins can create books with any valid status.
+      // 2. Users can only create books for donation (`donated_pending_approval`).
+      allow create: if (isAdmin() && request.resource.data.status in ['available', 'maintenance', 'lost'])
+                    || (isUser() && request.resource.data.status == 'donated_pending_approval'
+                        && request.resource.data.donatedBy.userId == request.auth.uid
+                        && request.resource.data.donatedBy.date == request.time);
+      
+      // UPDATE: Complex logic for different state transitions.
+      allow update: if 
+        // Admins can perform any update.
+        isAdmin() ||
+        
+        // Users can request to issue an available book.
+        // Transition: 'available' -> 'issue_requested'
+        (isUser() && resource.data.status == 'available'
+          && request.resource.data.status == 'issue_requested'
+          && request.resource.data.issueDetails.userId == request.auth.uid
+          && request.resource.data.issueDetails.issueDate == request.time) ||
+          
+        // Users can renew a book they have issued (if not overdue).
+        (isUser() && resource.data.status == 'issued' 
+          && request.resource.data.status == 'issued'
+          && resource.data.issueDetails.userId == request.auth.uid
+          && resource.data.issueDetails.dueDate <= request.time == false // cannot renew if overdue
+          && request.resource.data.issueDetails.dueDate > resource.data.issueDetails.dueDate) ||
+
+        // Users cannot return books themselves anymore, only admins can.
+        // This is handled by admin permission above.
+        false;
+
+      // DELETE: Only admins can delete books.
+      allow delete: if isAdmin();
     }
     
-    function isValidTimestampOrServerTimestamp(value) {
-      return value == request.time || (value is timestamp);
-    }
-
-    // USERS Collection
-    match /users/{userId} {
-      allow read: if isAdmin() || isUser(userId);
-      allow create: if isUser(userId) &&
-                       request.resource.data.uid == userId &&
-                       request.resource.data.role == 'user' &&
-                       isValidTimestampOrServerTimestamp(request.resource.data.createdAt) &&
-                       (request.resource.data.name == null || request.resource.data.name is string) &&
-                       request.resource.data.email == request.auth.token.email;
-      allow update: if isAdmin() || 
-                       (isUser(userId) && 
-                        request.resource.data.uid == userId && // Cannot change UID
-                        request.resource.data.email == resource.data.email && // Cannot change email easily
-                        request.resource.data.role == resource.data.role && // User cannot change their own role
-                        request.resource.data.createdAt == resource.data.createdAt); // Cannot change creation date
-      allow delete: if isAdmin();
-    }
-
-    // BOOKS Collection
-    match /books/{bookId} {
-      allow read: if isAuthenticated();
-
-      allow create: if (isAdmin() && request.resource.data.status != 'donated_pending_approval') ||
-                       (isAuthenticated() &&
-                        request.resource.data.status == 'donated_pending_approval' &&
-                        request.resource.data.donatedBy.userId == request.auth.uid &&
-                        request.resource.data.donatedBy.userName is string &&
-                        isValidTimestampOrServerTimestamp(request.resource.data.donatedBy.date) &&
-                        request.resource.data.title is string && request.resource.data.title != '' &&
-                        request.resource.data.author is string && request.resource.data.author != '' &&
-                        request.resource.data.isbn is string && request.resource.data.isbn != '');
-      
-      allow update: if isAdmin() || 
-                       // User returning a book
-                       (isAuthenticated() &&
-                        resource.data.status == 'issued' &&
-                        resource.data.issueDetails.userId == request.auth.uid &&
-                        request.resource.data.status == 'available' &&
-                        request.resource.data.issueDetails == null &&
-                        // Ensure other critical fields are not changed by user during return
-                        request.resource.data.title == resource.data.title &&
-                        request.resource.data.author == resource.data.author &&
-                        request.resource.data.isbn == resource.data.isbn 
-                       ) ||
-                       // User renewing a book
-                       (isAuthenticated() &&
-                        resource.data.status == 'issued' &&
-                        resource.data.issueDetails.userId == request.auth.uid &&
-                        request.resource.data.status == 'issued' && // Status must remain 'issued'
-                        request.resource.data.issueDetails.userId == resource.data.issueDetails.userId &&
-                        request.resource.data.issueDetails.userName == resource.data.issueDetails.userName &&
-                        request.resource.data.issueDetails.issueDate == resource.data.issueDetails.issueDate &&
-                        isValidTimestampOrServerTimestamp(request.resource.data.issueDetails.dueDate) && // Due date is updated
-                        request.resource.data.issueDetails.dueDate > resource.data.issueDetails.dueDate && // New due date must be later
-                        // Ensure book is not overdue (simplified check: old due date must be in future or today)
-                        (timestamp.date(resource.data.issueDetails.dueDate.year(), resource.data.issueDetails.dueDate.month(), resource.data.issueDetails.dueDate.day()) >= 
-                         timestamp.date(request.time.year(), request.time.month(), request.time.day())) &&
-                        // Ensure other critical fields are not changed
-                        request.resource.data.title == resource.data.title &&
-                        request.resource.data.author == resource.data.author &&
-                        request.resource.data.isbn == resource.data.isbn
-                       );
-
-      allow delete: if isAdmin();
-    }
-
-    // TRANSACTIONS Collection
+    // --- Transactions Collection Rules ---
     match /transactions/{transactionId} {
+      // READ: Admins can read all transactions.
       allow read: if isAdmin();
-      allow create: if (isAdmin()) || 
-                       (isAuthenticated() && 
-                        request.resource.data.userId == request.auth.uid &&
-                        request.resource.data.bookId is string &&
-                        request.resource.data.bookTitle is string &&
-                        request.resource.data.userName is string &&
-                        request.resource.data.type in ['issue', 'return', 'donate_request', 'renewal'] &&
-                        isValidTimestampOrServerTimestamp(request.resource.data.timestamp) &&
-                        (request.resource.data.type != 'issue' || (request.resource.data.type == 'issue' && isValidTimestampOrServerTimestamp(request.resource.data.dueDate))) &&
-                        (request.resource.data.type != 'renewal' || (request.resource.data.type == 'renewal' && isValidTimestampOrServerTimestamp(request.resource.data.dueDate)))
-                       );
-      allow update: if false; // Generally, transactions should be immutable
-      allow delete: if false; // Or only by admin if soft delete is needed
+
+      // WRITE: 
+      // 1. Admins can create any transaction record.
+      // 2. Users can only create transactions where they are the subject (`userId`).
+      allow write: if isAdmin() || (isUser() && request.resource.data.userId == request.auth.uid);
     }
   }
 }

@@ -7,14 +7,14 @@ import { Input } from '@/components/ui/input';
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@/components/ui/table';
 import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuLabel, DropdownMenuSeparator, DropdownMenuTrigger } from '@/components/ui/dropdown-menu';
 import { PlusCircle, MoreHorizontal, Search, Edit2, Trash2, BookOpenCheck, Undo, Loader2 as SpinnerIcon } from 'lucide-react';
-import type { Book, User } from '@/types';
+import type { Book } from '@/types';
 import { StatusPill } from '@/components/shared/StatusPill';
 import { BookFormModal } from './BookFormModal';
 import { useToast } from '@/hooks/use-toast';
 import { ConfirmationDialog } from '@/components/shared/ConfirmationDialog';
 import Image from 'next/image';
 import { db } from '@/lib/firebase.ts';
-import { collection, getDocs, addDoc, updateDoc, deleteDoc, doc, query, orderBy, serverTimestamp, writeBatch, getDoc } from "firebase/firestore";
+import { collection, getDocs, addDoc, updateDoc, deleteDoc, doc, query, orderBy, serverTimestamp, writeBatch, getDoc, deleteField } from "firebase/firestore";
 import { Skeleton } from '@/components/ui/skeleton';
 import {
   Dialog,
@@ -23,7 +23,6 @@ import {
   DialogFooter,
   DialogHeader,
   DialogTitle,
-  DialogTrigger,
 } from "@/components/ui/dialog";
 import { Label } from '@/components/ui/label';
 import { sampleAdmin } from '@/types'; // For admin name in transactions
@@ -34,7 +33,7 @@ async function logTransaction(transactionData: Omit<import('@/types').Transactio
   try {
     await addDoc(collection(db, "transactions"), {
       ...transactionData,
-      timestamp: new Date().toISOString(),
+      timestamp: serverTimestamp(),
     });
   } catch (error) {
     console.error("Error logging transaction:", error);
@@ -150,7 +149,7 @@ export function BookManagementTab() {
     const issueDetails = { 
       userId: issueToUserId,
       userName: finalUserName,
-      issueDate: issueDate.toISOString(), 
+      issueDate: serverTimestamp(), 
       dueDate: dueDate.toISOString()
     };
     
@@ -187,7 +186,7 @@ export function BookManagementTab() {
     }
     const bookRef = doc(db, "books", book.id);
     try {
-      await updateDoc(bookRef, { status: 'available', issueDetails: null }); 
+      await updateDoc(bookRef, { status: 'available', issueDetails: deleteField() }); 
       
       await logTransaction({
         bookId: book.id,
@@ -381,12 +380,12 @@ export function BookManagementTab() {
 
       {isIssueModalOpen && issuingBook && (
         <Dialog open={isIssueModalOpen} onOpenChange={ (open) => {
-            setIsIssueModalOpen(open);
             if (!open) {
                 setIssuingBook(null);
                 setIssueToUserId('');
                 setIssueToUserName('');
             }
+            setIsIssueModalOpen(open);
         }}>
           <DialogContent>
             <DialogHeader>

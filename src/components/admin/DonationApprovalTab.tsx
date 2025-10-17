@@ -4,7 +4,7 @@
 import { useState, useEffect, useCallback } from 'react';
 import { Button } from '@/components/ui/button';
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@/components/ui/table';
-import { CheckCircle2, XCircle, Eye, Gift as GiftIcon, Loader2 as SpinnerIcon } from 'lucide-react';
+import { CheckCircle2, XCircle, Eye, Gift as GiftIcon } from 'lucide-react';
 import type { Book } from '@/types';
 import { useToast } from '@/hooks/use-toast';
 import Image from 'next/image';
@@ -17,7 +17,7 @@ import {
   DialogTrigger,
 } from "@/components/ui/dialog";
 import { db } from '@/lib/firebase.ts';
-import { collection, getDocs, updateDoc, deleteDoc, doc, query, where, orderBy, addDoc } from "firebase/firestore";
+import { collection, getDocs, updateDoc, deleteDoc, doc, query, where, orderBy, addDoc, serverTimestamp } from "firebase/firestore";
 import { Skeleton } from '@/components/ui/skeleton';
 import { sampleAdmin } from '@/types';
 
@@ -27,7 +27,7 @@ async function logTransaction(transactionData: Omit<import('@/types').Transactio
   try {
     await addDoc(collection(db, "transactions"), {
       ...transactionData,
-      timestamp: new Date().toISOString(),
+      timestamp: serverTimestamp(),
     });
   } catch (error) {
     console.error("Error logging transaction:", error);
@@ -113,10 +113,12 @@ export function DonationApprovalTab() {
       return;
     }
     try {
+      // It's better to update status to 'donated_rejected' or similar if you want a record,
+      // but for now, we'll delete as per original logic.
       await deleteDoc(doc(db, "books", book.id));
       
       await logTransaction({
-        bookId: book.id,
+        bookId: book.id, // The ID is still available before deletion
         bookTitle: book.title,
         userId: book.donatedBy?.userId || 'unknown_donor',
         userName: book.donatedBy?.userName || 'Unknown Donor',
@@ -185,6 +187,8 @@ export function DonationApprovalTab() {
                 if (book.coverImageUrl && (book.coverImageUrl.startsWith('http://') || book.coverImageUrl.startsWith('https://'))) {
                   imageSrcTable = book.coverImageUrl;
                 }
+                const donationDate = book.donatedBy?.date?.toDate ? book.donatedBy.date.toDate().toLocaleDateString() : 'N/A';
+                
                 return (
                   <TableRow key={book.id}>
                     <TableCell>
@@ -200,7 +204,7 @@ export function DonationApprovalTab() {
                     <TableCell className="font-medium">{book.title}</TableCell>
                     <TableCell>{book.author}</TableCell>
                     <TableCell>{book.donatedBy?.userName || 'N/A'}</TableCell>
-                    <TableCell>{book.donatedBy?.date ? new Date(book.donatedBy.date).toLocaleDateString() : 'N/A'}</TableCell>
+                    <TableCell>{donationDate}</TableCell>
                     <TableCell className="text-right space-x-2">
                       <Dialog onOpenChange={(open) => !open && setViewingDonation(null)}>
                         <DialogTrigger asChild>
@@ -218,7 +222,7 @@ export function DonationApprovalTab() {
                               <p><strong>ISBN:</strong> {viewingDonation.isbn}</p>
                               <p><strong>Category:</strong> {viewingDonation.category}</p>
                               <p><strong>Published:</strong> {viewingDonation.publishedDate}</p>
-                              <p><strong>Donated By:</strong> {viewingDonation.donatedBy?.userName} on {viewingDonation.donatedBy?.date ? new Date(viewingDonation.donatedBy.date).toLocaleDateString() : 'N/A'}</p>
+                              <p><strong>Donated By:</strong> {viewingDonation.donatedBy?.userName} on {viewingDonation.donatedBy?.date?.toDate ? viewingDonation.donatedBy.date.toDate().toLocaleDateString() : 'N/A'}</p>
                               <p><strong>Description:</strong> {viewingDonation.description || "No description provided."}</p>
                               {(() => {
                                 let imageToDisplayDialog = null;
