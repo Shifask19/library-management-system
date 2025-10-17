@@ -10,9 +10,10 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@
 import { BookOpenCheck, Search, RefreshCcw, Loader2 as SpinnerIcon, Undo } from 'lucide-react';
 import { useToast } from '@/hooks/use-toast';
 import { db } from '@/lib/firebase.ts';
-import { collection, query, where, orderBy, getDocs, doc, updateDoc, addDoc, serverTimestamp, deleteField } from 'firebase/firestore';
+import { collection, query, where, orderBy, getDocs, doc, updateDoc, addDoc, serverTimestamp } from 'firebase/firestore';
 import { Skeleton } from '@/components/ui/skeleton';
 import { ConfirmationDialog } from '@/components/shared/ConfirmationDialog';
+import { format } from 'date-fns';
 
 const RENEWAL_PERIOD_DAYS = 7;
 
@@ -35,7 +36,7 @@ async function logTransaction(transactionData: Omit<import('@/types').Transactio
 
 const isBookOverdue = (book: Book): boolean => {
   if (book.status === 'issued' && book.issueDetails?.dueDate) {
-    const dueDate = new Date(book.issueDetails.dueDate);
+    const dueDate = book.issueDetails.dueDate.toDate ? book.issueDetails.dueDate.toDate() : new Date(book.issueDetails.dueDate);
     const now = new Date();
     // Compare date parts only
     const dueDateNormalized = new Date(dueDate.getFullYear(), dueDate.getMonth(), dueDate.getDate());
@@ -49,7 +50,7 @@ export function IssuedBooksTab({ currentUser }: IssuedBooksTabProps) {
   const [userBooks, setUserBooks] = useState<Book[]>([]);
   const [isLoading, setIsLoading] = useState(true);
   const [searchTerm, setSearchTerm] = useState('');
-  const [filter, setFilter] = useState<'all' | 'due_soon' | 'overdue'>('all');
+  const [filter, setFilter] = useState<'all' | 'due_soon' | 'overdue' | 'return_requested'>('all');
   const { toast } = useToast();
 
   const fetchIssuedBooks = useCallback(async () => {
@@ -68,7 +69,7 @@ export function IssuedBooksTab({ currentUser }: IssuedBooksTabProps) {
       const q = query(
         booksCollection, 
         where("issueDetails.userId", "==", currentUser.id),
-        where("status", "==", "issued"),
+        where("status", "in", ["issued", "return_requested"]),
         orderBy("issueDetails.dueDate", "asc")
       );
       const querySnapshot = await getDocs(q);
@@ -114,15 +115,15 @@ export function IssuedBooksTab({ currentUser }: IssuedBooksTabProps) {
         toast({ title: "Renewal Not Allowed", description: "Overdue books cannot be renewed. Please contact the library.", variant: "destructive" });
         return;
     }
-
-    const currentDueDate = new Date(bookToRenew.issueDetails.dueDate);
+    
+    const currentDueDate = bookToRenew.issueDetails.dueDate.toDate ? bookToRenew.issueDetails.dueDate.toDate() : new Date(bookToRenew.issueDetails.dueDate);
     const newDueDate = new Date(currentDueDate);
     newDueDate.setDate(currentDueDate.getDate() + RENEWAL_PERIOD_DAYS);
 
     const bookRef = doc(db, "books", bookId);
     try {
       await updateDoc(bookRef, {
-        "issueDetails.dueDate": newDueDate.toISOString(),
+        "issueDetails.dueDate": serverTimestamp(),
       });
 
       await logTransaction({
@@ -145,18 +146,17 @@ export function IssuedBooksTab({ currentUser }: IssuedBooksTabProps) {
       toast({ title: "Renewal Failed", description: "Could not renew the book. Please try again.", variant: "destructive" });
     }
   };
-
-  const handleReturnBook = async (bookId: string, bookTitle: string) => {
+  
+  const handleRequestReturn = async (bookId: string, bookTitle: string) => {
     if (!currentUser || !db) {
-      toast({ title: "Error", description: "Cannot return book at this time.", variant: "destructive" });
+      toast({ title: "Error", description: "Cannot request return at this time.", variant: "destructive" });
       return;
     }
 
     const bookRef = doc(db, "books", bookId);
     try {
       await updateDoc(bookRef, {
-        status: 'available',
-        issueDetails: deleteField(),
+        status: 'return_requested',
       });
 
       await logTransaction({
@@ -164,20 +164,21 @@ export function IssuedBooksTab({ currentUser }: IssuedBooksTabProps) {
         bookTitle: bookTitle,
         userId: currentUser.id,
         userName: currentUser.name || currentUser.email || 'User',
-        type: 'return',
-        notes: `Book returned by user.`
+        type: 'return_request',
+        notes: `User requested to return '${bookTitle}'`
       });
 
       toast({
-        title: "Book Returned",
-        description: `Thank you for returning "${bookTitle}".`,
+        title: "Return Requested",
+        description: `Your request to return "${bookTitle}" has been sent. Please bring the book to the library desk for confirmation.`,
       });
       fetchIssuedBooks(); // Refresh the list of issued books
     } catch (error) {
-      console.error("Error returning book:", error);
-      toast({ title: "Return Failed", description: "Could not return the book. Please try again.", variant: "destructive" });
+      console.error("Error requesting book return:", error);
+      toast({ title: "Request Failed", description: "Could not send your return request. Please try again.", variant: "destructive" });
     }
   };
+
 
   const filteredAndSortedBooks = userBooks
     .filter(book => {
@@ -188,9 +189,10 @@ export function IssuedBooksTab({ currentUser }: IssuedBooksTabProps) {
       if (!matchesSearch) return false;
 
       if (filter === 'all') return true;
+      if (filter === 'return_requested') return book.status === 'return_requested';
       
       if (!book.issueDetails?.dueDate) return false;
-      const dueDate = new Date(book.issueDetails.dueDate);
+      const dueDate = book.issueDetails.dueDate.toDate ? book.issueDetails.dueDate.toDate() : new Date(book.issueDetails.dueDate);
       const today = new Date();
       today.setHours(0, 0, 0, 0); 
       const normalizedDueDate = new Date(dueDate.getFullYear(), dueDate.getMonth(), dueDate.getDate());
@@ -236,9 +238,10 @@ export function IssuedBooksTab({ currentUser }: IssuedBooksTabProps) {
             <SelectValue placeholder="Filter by status" />
           </SelectTrigger>
           <SelectContent>
-            <SelectItem value="all">All Books</SelectItem>
+            <SelectItem value="all">All Issued</SelectItem>
             <SelectItem value="due_soon">Due Soon</SelectItem>
             <SelectItem value="overdue">Overdue</SelectItem>
+            <SelectItem value="return_requested">Return Requested</SelectItem>
           </SelectContent>
         </Select>
       </div>
@@ -258,7 +261,7 @@ export function IssuedBooksTab({ currentUser }: IssuedBooksTabProps) {
                     <Button
                       className="w-full"
                       variant="outline"
-                      disabled={!currentUser || isBookOverdue(book)}
+                      disabled={!currentUser || isBookOverdue(book) || book.status === 'return_requested'}
                     >
                       <RefreshCcw className="mr-2 h-4 w-4" /> Request Renewal
                     </Button>
@@ -272,17 +275,16 @@ export function IssuedBooksTab({ currentUser }: IssuedBooksTabProps) {
                   triggerButton={
                     <Button
                       className="w-full"
-                      variant="destructive"
-                      disabled={!currentUser}
+                      variant="default"
+                      disabled={!currentUser || book.status === 'return_requested'}
                     >
-                      <Undo className="mr-2 h-4 w-4" /> This button is a placeholder
+                      <Undo className="mr-2 h-4 w-4" /> Request Return
                     </Button>
                   }
-                  title="Return Book to Admin"
-                  description={`To return "${book.title}", please bring it to the library circulation desk. This action cannot be performed online.`}
-                  onConfirm={() => {}}
-                  confirmText="Acknowledge"
-                  cancelText=''
+                  title="Confirm Return Request"
+                  description={`This will notify the librarian that you want to return "${book.title}". Please bring the physical book to the circulation desk to complete the return process.`}
+                  onConfirm={() => handleRequestReturn(book.id, book.title)}
+                  confirmText="Yes, Send Request"
                 />
               </div>
             </BookCard>

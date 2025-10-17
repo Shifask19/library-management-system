@@ -14,7 +14,7 @@ export interface Book {
   author: string;
   isbn: string;
   coverImageUrl?: string; // URL to cover image
-  status: 'available' | 'issued' | 'donated_pending_approval' | 'donated_approved' | 'lost' | 'maintenance' | 'issue_requested';
+  status: 'available' | 'issued' | 'donated_pending_approval' | 'donated_approved' | 'lost' | 'maintenance' | 'issue_requested' | 'return_requested';
   category?: string;
   publishedDate?: string; // Consider storing as ISO string or just year
   description?: string;
@@ -27,7 +27,7 @@ export interface Book {
     userId: string;
     userName: string;
     issueDate: any; // ISO string or ServerTimestamp
-    dueDate: string; // ISO string
+    dueDate: any; // ISO string or ServerTimestamp
     returnedDate?: string; // ISO string
   };
   tags?: string[];
@@ -42,7 +42,7 @@ export interface Transaction {
   bookTitle: string; 
   userId: string;
   userName: string;
-  type: 'issue' | 'return' | 'donate_request' | 'donate_approve' | 'donate_reject' | 'fine_paid' | 'renewal' | 'issue_request' | 'issue_reject';
+  type: 'issue' | 'return' | 'donate_request' | 'donate_approve' | 'donate_reject' | 'fine_paid' | 'renewal' | 'issue_request' | 'issue_reject' | 'return_request' | 'return_reject';
   timestamp: any; // ISO string or ServerTimestamp
   dueDate?: string; // ISO string, for issue transactions
   notes?: string;
@@ -66,7 +66,8 @@ export type BookStatusVariant =
   | "donated"
   | "lost"
   | "maintenance"
-  | "issue_requested";
+  | "issue_requested"
+  | "return_requested";
 
 export interface BookStatusPillDetail {
   text: string;

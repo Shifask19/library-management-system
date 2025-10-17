@@ -42,6 +42,14 @@
         { "fieldPath": "issueDetails.issueDate", "order": "DESCENDING" }
       ]
     },
+     {
+      "collectionGroup": "books",
+      "queryScope": "COLLECTION",
+      "fields": [
+        { "fieldPath": "status", "order": "ASCENDING" },
+        { "fieldPath": "issueDetails.issueDate", "order": "ASCENDING" }
+      ]
+    },
     {
       "collectionGroup": "transactions",
       "queryScope": "COLLECTION",

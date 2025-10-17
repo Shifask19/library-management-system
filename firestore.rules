@@ -2,97 +2,115 @@ rules_version = '2';
 
 service cloud.firestore {
   match /databases/{database}/documents {
+  
+    // Helper Functions
+    // ===============================================
     
-    // --- Helper Functions ---
+    // Get current user's role from the 'users' collection
+    function getUserRole(userId) {
+      return get(/databases/$(database)/documents/users/$(userId)).data.role;
+    }
+    
+    // Check if the user is an admin
+    function isAdmin() {
+      return isSignedIn() && getUserRole(request.auth.uid) == 'admin';
+    }
+    
+    // Check if the user is a standard user
+    function isUser() {
+      return isSignedIn() && getUserRole(request.auth.uid) == 'user';
+    }
+    
+    // Check if user is authenticated
     function isSignedIn() {
       return request.auth != null;
     }
     
-    function isUser() {
-      return isSignedIn() && get(/databases/$(database)/documents/users/$(request.auth.uid)).data.role == 'user';
-    }
-
-    function isAdmin() {
-      return isSignedIn() && get(/databases/$(database)/documents/users/$(request.auth.uid)).data.role == 'admin';
-    }
-
+    // Check if the user is the owner of the document
     function isOwner(userId) {
       return request.auth.uid == userId;
     }
-
-    // --- Users Collection Rules ---
+    
+    // USERS Collection Rules
+    // ===============================================
     match /users/{userId} {
-      // READ: Admins can read all user profiles. Users can read their own.
-      allow read: if isAdmin() || (isUser() && isOwner(userId));
+    
+      // CREATE: Allow a user to create their own document (e.g., during signup)
+      allow create: if isSignedIn() 
+                      && isOwner(userId)
+                      && request.resource.data.role == 'user'
+                      && request.resource.data.createdAt == request.time;
       
-      // CREATE: A user can create their own user document (e.g., on signup).
-      // The role must be 'user', and the UID must match.
-      allow create: if isSignedIn() && isOwner(userId)
-                    && request.resource.data.role == 'user'
-                    // ensure required fields are present
-                    && 'email' in request.resource.data
-                    && 'createdAt' in request.resource.data
-                    && request.resource.data.createdAt == request.time;
+      // READ: Admins can read any user profile. Users can read their own profile.
+      allow get: if isAdmin() || (isSignedIn() && isOwner(userId));
+      allow list: if isAdmin(); // Only admins can list all users
       
-      // UPDATE: Admins can update any user. Users can only update their own `name`.
-      // Roles cannot be changed by users.
-      allow update: if isAdmin() || (isUser() && isOwner(userId)
-                    && request.resource.data.name == resource.data.name
-                    && request.resource.data.role == resource.data.role); // Can't change role
+      // UPDATE: Admins can update any profile. Users can only update their own name.
+      allow update: if isAdmin() || 
+                      (isUser() && isOwner(userId) && request.resource.data.keys().hasOnly(['name']));
       
-      // DELETE: Only admins can delete user documents.
+      // DELETE: Only admins can delete user documents (Firestore record, not Auth user)
       allow delete: if isAdmin();
     }
-
-    // --- Books Collection Rules ---
+    
+    // BOOKS Collection Rules
+    // ===============================================
     match /books/{bookId} {
-      // READ: Any signed-in user can read book data.
-      allow read: if isSignedIn();
-      
-      // CREATE: 
-      // 1. Admins can create books with any valid status.
-      // 2. Users can only create books for donation (`donated_pending_approval`).
-      allow create: if (isAdmin() && request.resource.data.status in ['available', 'maintenance', 'lost'])
-                    || (isUser() && request.resource.data.status == 'donated_pending_approval'
-                        && request.resource.data.donatedBy.userId == request.auth.uid
-                        && request.resource.data.donatedBy.date == request.time);
-      
-      // UPDATE: Complex logic for different state transitions.
-      allow update: if 
-        // Admins can perform any update.
-        isAdmin() ||
-        
-        // Users can request to issue an available book.
-        // Transition: 'available' -> 'issue_requested'
-        (isUser() && resource.data.status == 'available'
-          && request.resource.data.status == 'issue_requested'
-          && request.resource.data.issueDetails.userId == request.auth.uid
-          && request.resource.data.issueDetails.issueDate == request.time) ||
-          
-        // Users can renew a book they have issued (if not overdue).
-        (isUser() && resource.data.status == 'issued' 
-          && request.resource.data.status == 'issued'
-          && resource.data.issueDetails.userId == request.auth.uid
-          && resource.data.issueDetails.dueDate <= request.time == false // cannot renew if overdue
-          && request.resource.data.issueDetails.dueDate > resource.data.issueDetails.dueDate) ||
+    
+      // READ: Any authenticated user can read book data.
+      allow get, list: if isSignedIn();
 
-        // Users cannot return books themselves anymore, only admins can.
-        // This is handled by admin permission above.
-        false;
+      // CREATE:
+      // Admins can add books with any valid status.
+      // Users can only add books via donation (status: 'donated_pending_approval')
+      allow create: if (isAdmin() && request.resource.data.status in ['available', 'maintenance', 'lost'])
+                      || (isUser() 
+                          && request.resource.data.status == 'donated_pending_approval'
+                          && request.resource.data.donatedBy.userId == request.auth.uid
+                          && request.resource.data.donatedBy.date == request.time);
+                          
+      // UPDATE: Complex logic for different update scenarios
+      allow update: if isAdmin() // Admins can perform any valid update.
+                      || 
+                      // User requests to issue a book
+                      (isUser() 
+                        && request.resource.data.status == 'issue_requested'
+                        && resource.data.status == 'available' // Can only request available books
+                        && request.resource.data.issueDetails.userId == request.auth.uid
+                        && request.resource.data.issueDetails.issueDate == request.time)
+                      ||
+                      // User requests to return a book
+                      (isUser()
+                        && isOwner(resource.data.issueDetails.userId)
+                        && request.resource.data.status == 'return_requested'
+                        && resource.data.status == 'issued')
+                      ||
+                      // User renews a book
+                      (isUser()
+                        && isOwner(resource.data.issueDetails.userId)
+                        && resource.data.status == 'issued'
+                        && request.resource.data.issueDetails.dueDate > resource.data.issueDetails.dueDate // New due date must be later
+                      );
 
       // DELETE: Only admins can delete books.
       allow delete: if isAdmin();
     }
     
-    // --- Transactions Collection Rules ---
+    // TRANSACTIONS Collection Rules
+    // ===============================================
     match /transactions/{transactionId} {
-      // READ: Admins can read all transactions.
-      allow read: if isAdmin();
-
-      // WRITE: 
-      // 1. Admins can create any transaction record.
-      // 2. Users can only create transactions where they are the subject (`userId`).
-      allow write: if isAdmin() || (isUser() && request.resource.data.userId == request.auth.uid);
+    
+      // READ: Only admins can read the full transaction log.
+      allow get, list: if isAdmin();
+      
+      // CREATE:
+      // A user can create a transaction if they are the one associated with it.
+      // An admin can create any transaction (e.g. issuing a book from the admin panel)
+      allow create: if (isSignedIn() && request.resource.data.userId == request.auth.uid && request.resource.data.timestamp == request.time) 
+                      || isAdmin();
+                      
+      // UPDATE, DELETE: Transactions should be immutable.
+      allow update, delete: if false;
     }
   }
 }

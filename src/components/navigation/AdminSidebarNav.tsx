@@ -5,7 +5,7 @@ import Link from "next/link";
 import { usePathname, useSearchParams } from "next/navigation";
 import { cn } from "@/lib/utils";
 import type { NavItem } from "@/types";
-import { LayoutDashboard, BookMarked, Users, Gift, History, Settings, BellRing } from "lucide-react";
+import { LayoutDashboard, BookMarked, Users, Gift, History, Settings, BellRing, Undo } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { ScrollArea } from "@/components/ui/scroll-area";
 import { useEffect, useState } from 'react';
@@ -14,6 +14,7 @@ const adminNavItems: NavItem[] = [
   { href: "/admin/dashboard", label: "Dashboard", icon: LayoutDashboard },
   { href: "/admin/dashboard?tab=books", label: "Book Management", icon: BookMarked },
   { href: "/admin/dashboard?tab=issue-requests", label: "Issue Requests", icon: BellRing },
+  { href: "/admin/dashboard?tab=return-requests", label: "Return Requests", icon: Undo },
   { href: "/admin/dashboard?tab=donations", label: "Donations", icon: Gift },
   { href: "/admin/dashboard?tab=users", label: "User Management", icon: Users },
   { href: "/admin/dashboard?tab=transactions", label: "Transaction Log", icon: History },
@@ -42,12 +43,14 @@ export function AdminSidebarNav() {
     const defaultTabForDashboard = "books";
 
     if (!queryString) { 
+      // This is the dashboard link without a tab, it should be active if no tab is selected or if the 'books' tab is selected.
       return !currentTab || currentTab === defaultTabForDashboard;
     }
 
     const linkQuery = new URLSearchParams(queryString);
     const linkTab = linkQuery.get('tab');
 
+    // Make the main dashboard link active also when books tab is active
     if (linkTab === defaultTabForDashboard) {
         return currentTab === defaultTabForDashboard || !currentTab;
     }

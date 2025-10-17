@@ -1,13 +1,13 @@
 import type { Book, BookStatusPillDetail, BookStatusVariant } from '@/types';
 import { cn } from '@/lib/utils';
-import { AlertTriangle, BookOpenCheck, CheckCircle, Clock, Gift, HelpCircle, Loader2, XCircle, BellRing } from 'lucide-react';
+import { AlertTriangle, BookOpenCheck, CheckCircle, Clock, Gift, HelpCircle, Loader2, XCircle, BellRing, Undo } from 'lucide-react';
 
 const getStatusDetails = (book: Book): BookStatusPillDetail => {
   const now = new Date();
   let variant: BookStatusVariant = book.status as BookStatusVariant; // Default to book.status
 
-  if (book.status === 'issued' && book.issueDetails) {
-    const dueDate = new Date(book.issueDetails.dueDate);
+  if (book.status === 'issued' && book.issueDetails?.dueDate) {
+    const dueDate = book.issueDetails.dueDate.toDate ? book.issueDetails.dueDate.toDate() : new Date(book.issueDetails.dueDate);
     const diffTime = dueDate.getTime() - now.getTime();
     const diffDays = Math.ceil(diffTime / (1000 * 60 * 60 * 24));
 
@@ -21,6 +21,8 @@ const getStatusDetails = (book: Book): BookStatusPillDetail => {
     variant = 'available';
   } else if (book.status === 'issue_requested') {
     variant = 'issue_requested';
+  } else if (book.status === 'return_requested') {
+    variant = 'return_requested';
   }
 
   switch (variant) {
@@ -36,6 +38,8 @@ const getStatusDetails = (book: Book): BookStatusPillDetail => {
       return { text: 'Pending Approval', bgColorClass: 'bg-purple-100 dark:bg-purple-900', textColorClass: 'text-purple-700 dark:text-purple-300', icon: HelpCircle };
     case 'issue_requested':
       return { text: 'Issue Requested', bgColorClass: 'bg-orange-100 dark:bg-orange-900', textColorClass: 'text-orange-700 dark:text-orange-300', icon: BellRing };
+    case 'return_requested':
+      return { text: 'Return Requested', bgColorClass: 'bg-indigo-100 dark:bg-indigo-900', textColorClass: 'text-indigo-700 dark:text-indigo-300', icon: Undo };
     case 'donated': // This case is mostly for logic, UI might show 'Available'
       return { text: 'Donated', bgColorClass: 'bg-teal-100 dark:bg-teal-900', textColorClass: 'text-teal-700 dark:text-teal-300', icon: Gift };
     case 'lost':

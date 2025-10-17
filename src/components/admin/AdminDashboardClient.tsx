@@ -6,8 +6,9 @@ import { BookManagementTab } from "./BookManagementTab";
 import { UserManagementTab } from "./UserManagementTab";
 import { DonationApprovalTab } from "./DonationApprovalTab";
 import { TransactionLogTab } from "./TransactionLogTab";
-import { IssueRequestsTab } from "./IssueRequestsTab"; // New Import
-import { BookMarked, Users, Gift, History, Settings, BellRing } from 'lucide-react'; // New Icon
+import { IssueRequestsTab } from "./IssueRequestsTab";
+import { ReturnRequestsTab } from "./ReturnRequestsTab"; // New Import
+import { BookMarked, Users, Gift, History, Settings, BellRing, Undo } from 'lucide-react'; // New Icons
 import { PageHeader } from "../shared/PageHeader";
 import { useSearchParams, useRouter, usePathname } from "next/navigation";
 import { useEffect, useState } from "react";
@@ -53,21 +54,24 @@ export function AdminDashboardClient() {
         description="Oversee and manage all library operations."
       />
       <Tabs value={activeTab} onValueChange={onTabChange} className="w-full">
-        <TabsList className="grid w-full grid-cols-2 sm:grid-cols-6 gap-2 h-auto p-1">
+        <TabsList className="grid w-full grid-cols-2 sm:grid-cols-7 gap-2 h-auto p-1">
           <TabsTrigger value="books" className="flex-col sm:flex-row h-auto py-2 sm:py-1.5 gap-1 sm:gap-2 data-[state=active]:bg-primary data-[state=active]:text-primary-foreground">
-            <BookMarked className="h-5 w-5" /> <span>Book Management</span>
+            <BookMarked className="h-5 w-5" /> <span>Books</span>
           </TabsTrigger>
           <TabsTrigger value="issue-requests" className="flex-col sm:flex-row h-auto py-2 sm:py-1.5 gap-1 sm:gap-2 data-[state=active]:bg-primary data-[state=active]:text-primary-foreground">
             <BellRing className="h-5 w-5" /> <span>Issue Requests</span>
           </TabsTrigger>
+           <TabsTrigger value="return-requests" className="flex-col sm:flex-row h-auto py-2 sm:py-1.5 gap-1 sm:gap-2 data-[state=active]:bg-primary data-[state=active]:text-primary-foreground">
+            <Undo className="h-5 w-5" /> <span>Return Requests</span>
+          </TabsTrigger>
           <TabsTrigger value="donations" className="flex-col sm:flex-row h-auto py-2 sm:py-1.5 gap-1 sm:gap-2 data-[state=active]:bg-primary data-[state=active]:text-primary-foreground">
-            <Gift className="h-5 w-5" /> <span>Donation Approvals</span>
+            <Gift className="h-5 w-5" /> <span>Donations</span>
           </TabsTrigger>
            <TabsTrigger value="users" className="flex-col sm:flex-row h-auto py-2 sm:py-1.5 gap-1 sm:gap-2 data-[state=active]:bg-primary data-[state=active]:text-primary-foreground">
-            <Users className="h-5 w-5" /> <span>User Management</span>
+            <Users className="h-5 w-5" /> <span>Users</span>
           </TabsTrigger>
           <TabsTrigger value="transactions" className="flex-col sm:flex-row h-auto py-2 sm:py-1.5 gap-1 sm:gap-2 data-[state=active]:bg-primary data-[state=active]:text-primary-foreground">
-            <History className="h-5 w-5" /> <span>Transaction Log</span>
+            <History className="h-5 w-5" /> <span>Transactions</span>
           </TabsTrigger>
           <TabsTrigger value="settings" className="flex-col sm:flex-row h-auto py-2 sm:py-1.5 gap-1 sm:gap-2 data-[state=active]:bg-primary data-[state=active]:text-primary-foreground">
             <Settings className="h-5 w-5" /> <span>Settings</span>
@@ -79,6 +83,9 @@ export function AdminDashboardClient() {
         </TabsContent>
         <TabsContent value="issue-requests" className="mt-6">
           <IssueRequestsTab />
+        </TabsContent>
+        <TabsContent value="return-requests" className="mt-6">
+          <ReturnRequestsTab />
         </TabsContent>
         <TabsContent value="donations" className="mt-6">
           <DonationApprovalTab />

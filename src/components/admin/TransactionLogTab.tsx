@@ -15,7 +15,11 @@ import { format } from 'date-fns';
 const getTransactionTypeVariant = (type: Transaction['type']) => {
   switch (type) {
     case 'issue': return 'bg-blue-100 text-blue-700 dark:bg-blue-900 dark:text-blue-300';
+    case 'issue_request': return 'bg-orange-100 text-orange-700 dark:bg-orange-900 dark:text-orange-300';
+    case 'issue_reject': return 'bg-red-100 text-red-700 dark:bg-red-900 dark:text-red-300';
     case 'return': return 'bg-green-100 text-green-700 dark:bg-green-900 dark:text-green-300';
+    case 'return_request': return 'bg-indigo-100 text-indigo-700 dark:bg-indigo-900 dark:text-indigo-300';
+    case 'return_reject': return 'bg-pink-100 text-pink-700 dark:bg-pink-900 dark:text-pink-300';
     case 'renewal': return 'bg-purple-100 text-purple-700 dark:bg-purple-900 dark:text-purple-300';
     case 'donate_request': return 'bg-yellow-100 text-yellow-700 dark:bg-yellow-900 dark:text-yellow-300';
     case 'donate_approve': return 'bg-teal-100 text-teal-700 dark:bg-teal-900 dark:text-teal-300';
@@ -118,23 +122,26 @@ export function TransactionLogTab() {
             </TableRow>
           </TableHeader>
           <TableBody>
-            {transactions.map((transaction) => (
-              <TableRow key={transaction.id}>
-                <TableCell>{format(new Date(transaction.timestamp), "PPpp")}</TableCell>
-                <TableCell>{transaction.userName || 'N/A'}</TableCell>
-                <TableCell className="font-medium">{transaction.bookTitle || 'N/A'}</TableCell>
-                <TableCell>
-                  <Badge variant="outline" className={`text-xs ${getTransactionTypeVariant(transaction.type)}`}>
-                    {transaction.type.replace(/_/g, ' ').replace(/\b\w/g, l => l.toUpperCase())}
-                  </Badge>
-                </TableCell>
-                <TableCell>
-                  {transaction.type === 'issue' || transaction.type === 'renewal' ? 
-                    (transaction.dueDate ? format(new Date(transaction.dueDate), "P") : 'N/A') 
-                    : 'N/A'}
-                </TableCell>
-              </TableRow>
-            ))}
+            {transactions.map((transaction) => {
+              const timestamp = transaction.timestamp?.toDate ? format(transaction.timestamp.toDate(), "PPpp") : 'Processing...';
+              return (
+                <TableRow key={transaction.id}>
+                  <TableCell>{timestamp}</TableCell>
+                  <TableCell>{transaction.userName || 'N/A'}</TableCell>
+                  <TableCell className="font-medium">{transaction.bookTitle || 'N/A'}</TableCell>
+                  <TableCell>
+                    <Badge variant="outline" className={`text-xs ${getTransactionTypeVariant(transaction.type)}`}>
+                      {transaction.type.replace(/_/g, ' ').replace(/\b\w/g, l => l.toUpperCase())}
+                    </Badge>
+                  </TableCell>
+                  <TableCell>
+                    {transaction.type === 'issue' || transaction.type === 'renewal' ? 
+                      (transaction.dueDate ? format(new Date(transaction.dueDate), "P") : 'N/A') 
+                      : 'N/A'}
+                  </TableCell>
+                </TableRow>
+              )
+            })}
           </TableBody>
         </Table>
       </div>
