@@ -1,115 +1,91 @@
+
 rules_version = '2';
 
 service cloud.firestore {
   match /databases/{database}/documents {
   
-    // Helper Functions
-    // ===============================================
-    
-    // Get current user's role from the 'users' collection
-    function getUserRole(userId) {
-      return get(/databases/$(database)/documents/users/$(userId)).data.role;
-    }
-    
-    // Check if the user is an admin
+    // Helper functions
     function isAdmin() {
-      return isSignedIn() && getUserRole(request.auth.uid) == 'admin';
+      return get(/databases/$(database)/documents/users/$(request.auth.uid)).data.role == 'admin';
     }
     
-    // Check if the user is a standard user
     function isUser() {
-      return isSignedIn() && getUserRole(request.auth.uid) == 'user';
+      return request.auth != null && get(/databases/$(database)/documents/users/$(request.auth.uid)).data.role == 'user';
     }
     
-    // Check if user is authenticated
-    function isSignedIn() {
-      return request.auth != null;
-    }
-    
-    // Check if the user is the owner of the document
     function isOwner(userId) {
-      return request.auth.uid == userId;
+      return request.auth != null && request.auth.uid == userId;
+    }
+
+    // Is the user creating a new user document for themselves?
+    function isCreatingOwnUser(userId) {
+      return isOwner(userId) && !exists(/databases/$(database)/documents/users/$(userId));
     }
     
-    // USERS Collection Rules
-    // ===============================================
+    // Is the resource being created with a server timestamp?
+    function isCreatingWithServerTimestamp(fieldName) {
+      return request.resource.data[fieldName] == request.time;
+    }
+    
+    function isDonationRequest(bookData) {
+        return bookData.status == 'donated_pending_approval'
+            && bookData.donatedBy.userId == request.auth.uid
+            && bookData.donatedBy.date == request.time;
+    }
+    
+    function isIssueRequest(bookData, existingBookData) {
+        return existingBookData.status in ['available', 'donated_approved']
+            && bookData.status == 'issue_requested'
+            && bookData.keys().hasOnly(['status', 'issueDetails']) // User can only change these fields
+            && bookData.issueDetails.userId == request.auth.uid
+            && bookData.issueDetails.issueDate == request.time
+            && bookData.issueDetails.dueDate == null;
+    }
+    
+    function isReturnRequest(bookData, existingBookData) {
+        return existingBookData.status == 'issued'
+            && bookData.status == 'return_requested'
+            && bookData.keys().hasOnly(['status']); // Only status can be changed
+    }
+
+    // USER-centric rules
     match /users/{userId} {
-    
-      // CREATE: Allow a user to create their own document (e.g., during signup)
-      allow create: if isSignedIn() 
-                      && isOwner(userId)
-                      && request.resource.data.role == 'user'
-                      && request.resource.data.createdAt == request.time;
-      
-      // READ: Admins can read any user profile. Users can read their own profile.
-      allow get: if isAdmin() || (isSignedIn() && isOwner(userId));
-      allow list: if isAdmin(); // Only admins can list all users
-      
-      // UPDATE: Admins can update any profile. Users can only update their own name.
-      allow update: if isAdmin() || 
-                      (isUser() && isOwner(userId) && request.resource.data.keys().hasOnly(['name']));
-      
-      // DELETE: Only admins can delete user documents (Firestore record, not Auth user)
+      allow read: if isOwner(userId) || isAdmin();
+      allow create: if isCreatingOwnUser(userId) && isCreatingWithServerTimestamp('createdAt');
+      allow update: if (isAdmin() || isOwner(userId)) && request.resource.data.role == resource.data.role; // Prevent role escalation
       allow delete: if isAdmin();
     }
     
-    // BOOKS Collection Rules
-    // ===============================================
+    // BOOK-centric rules
     match /books/{bookId} {
-    
-      // READ: Any authenticated user can read book data.
-      allow get, list: if isSignedIn();
+      // Allow any authenticated user to read book data
+      allow read: if request.auth != null;
 
-      // CREATE:
-      // Admins can add books with any valid status.
-      // Users can only add books via donation (status: 'donated_pending_approval')
-      allow create: if (isAdmin() && request.resource.data.status in ['available', 'maintenance', 'lost'])
-                      || (isUser() 
-                          && request.resource.data.status == 'donated_pending_approval'
-                          && request.resource.data.donatedBy.userId == request.auth.uid
-                          && request.resource.data.donatedBy.date == request.time);
-                          
-      // UPDATE: Complex logic for different update scenarios
-      allow update: if isAdmin() // Admins can perform any valid update.
-                      || 
-                      // User requests to issue a book
-                      (isUser() 
-                        && request.resource.data.status == 'issue_requested'
-                        && resource.data.status == 'available' // Can only request available books
-                        && request.resource.data.issueDetails.userId == request.auth.uid
-                        && request.resource.data.issueDetails.issueDate == request.time)
-                      ||
-                      // User requests to return a book
-                      (isUser()
-                        && isOwner(resource.data.issueDetails.userId)
-                        && request.resource.data.status == 'return_requested'
-                        && resource.data.status == 'issued')
-                      ||
-                      // User renews a book
-                      (isUser()
-                        && isOwner(resource.data.issueDetails.userId)
-                        && resource.data.status == 'issued'
-                        && request.resource.data.issueDetails.dueDate > resource.data.issueDetails.dueDate // New due date must be later
-                      );
+      // Create: Admins can add any book. Users can only add 'donated_pending_approval' books for themselves.
+      allow create: if isAdmin() || (isUser() && isDonationRequest(request.resource.data));
 
-      // DELETE: Only admins can delete books.
+      // Update: Granular control
+      allow update: if isAdmin() || 
+                      // User is requesting to issue a book
+                      (isUser() && isIssueRequest(request.resource.data, resource.data)) ||
+                      // User is requesting to return a book they have
+                      (isUser() && isOwner(resource.data.issueDetails.userId) && isReturnRequest(request.resource.data, resource.data));
+
+      // Delete: Only admins can delete books
       allow delete: if isAdmin();
     }
     
-    // TRANSACTIONS Collection Rules
-    // ===============================================
+    // TRANSACTION-centric rules
     match /transactions/{transactionId} {
-    
-      // READ: Only admins can read the full transaction log.
-      allow get, list: if isAdmin();
+      // Admins can read all transactions
+      allow read: if isAdmin();
+
+      // Users involved can create transactions (e.g., when they trigger an issue/return/donate)
+      // The rules on the 'books' collection are the primary gatekeeper.
+      // This is a more trusting rule, assuming book rules are tight.
+      allow create: if isOwner(request.resource.data.userId) || isAdmin();
       
-      // CREATE:
-      // A user can create a transaction if they are the one associated with it.
-      // An admin can create any transaction (e.g. issuing a book from the admin panel)
-      allow create: if (isSignedIn() && request.resource.data.userId == request.auth.uid && request.resource.data.timestamp == request.time) 
-                      || isAdmin();
-                      
-      // UPDATE, DELETE: Transactions should be immutable.
+      // Transactions are immutable
       allow update, delete: if false;
     }
   }
