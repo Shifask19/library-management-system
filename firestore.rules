@@ -3,90 +3,104 @@ rules_version = '2';
 
 service cloud.firestore {
   match /databases/{database}/documents {
-  
-    // Helper functions
-    function isAdmin() {
-      return get(/databases/$(database)/documents/users/$(request.auth.uid)).data.role == 'admin';
-    }
     
+    // =====================================================================
+    // Helper Functions
+    // =====================================================================
+    
+    function isSignedIn() {
+      return request.auth != null;
+    }
+
     function isUser() {
-      return request.auth != null && get(/databases/$(database)/documents/users/$(request.auth.uid)).data.role == 'user';
+      return isSignedIn() && get(/databases/$(database)/documents/users/$(request.auth.uid)).data.role == 'user';
+    }
+
+    function isAdmin() {
+      return isSignedIn() && get(/databases/$(database)/documents/users/$(request.auth.uid)).data.role == 'admin';
     }
     
     function isOwner(userId) {
-      return request.auth != null && request.auth.uid == userId;
+      return request.auth.uid == userId;
     }
 
-    // Is the user creating a new user document for themselves?
-    function isCreatingOwnUser(userId) {
-      return isOwner(userId) && !exists(/databases/$(database)/documents/users/$(userId));
-    }
-    
-    // Is the resource being created with a server timestamp?
-    function isCreatingWithServerTimestamp(fieldName) {
-      return request.resource.data[fieldName] == request.time;
-    }
-    
-    function isDonationRequest(bookData) {
-        return bookData.status == 'donated_pending_approval'
-            && bookData.donatedBy.userId == request.auth.uid
-            && bookData.donatedBy.date == request.time;
-    }
-    
-    function isIssueRequest(bookData, existingBookData) {
-        return existingBookData.status in ['available', 'donated_approved']
-            && bookData.status == 'issue_requested'
-            && bookData.keys().hasOnly(['status', 'issueDetails']) // User can only change these fields
-            && bookData.issueDetails.userId == request.auth.uid
-            && bookData.issueDetails.issueDate == request.time
-            && bookData.issueDetails.dueDate == null;
-    }
-    
-    function isReturnRequest(bookData, existingBookData) {
-        return existingBookData.status == 'issued'
-            && bookData.status == 'return_requested'
-            && bookData.keys().hasOnly(['status']); // Only status can be changed
-    }
-
-    // USER-centric rules
+    // =====================================================================
+    // Users Collection
+    // =====================================================================
     match /users/{userId} {
-      allow read: if isOwner(userId) || isAdmin();
-      allow create: if isCreatingOwnUser(userId) && isCreatingWithServerTimestamp('createdAt');
-      allow update: if (isAdmin() || isOwner(userId)) && request.resource.data.role == resource.data.role; // Prevent role escalation
-      allow delete: if isAdmin();
-    }
-    
-    // BOOK-centric rules
-    match /books/{bookId} {
-      // Allow any authenticated user to read book data
-      allow read: if request.auth != null;
-
-      // Create: Admins can add any book. Users can only add 'donated_pending_approval' books for themselves.
-      allow create: if isAdmin() || (isUser() && isDonationRequest(request.resource.data));
-
-      // Update: Granular control
+      allow read: if isAdmin() || (isSignedIn() && isOwner(userId));
+      
+      // Allow user creation (signup)
+      allow create: if isSignedIn() 
+                    && isOwner(userId)
+                    && request.resource.data.role == 'user'
+                    && request.resource.data.createdAt is timestamp;
+      
+      // Admins can update any user, users can only update their own name
       allow update: if isAdmin() || 
-                      // User is requesting to issue a book
-                      (isUser() && isIssueRequest(request.resource.data, resource.data)) ||
-                      // User is requesting to return a book they have
-                      (isUser() && isOwner(resource.data.issueDetails.userId) && isReturnRequest(request.resource.data, resource.data));
+                     (isUser() && isOwner(userId) && request.resource.data.keys().hasOnly(['name']));
 
-      // Delete: Only admins can delete books
       allow delete: if isAdmin();
     }
-    
-    // TRANSACTION-centric rules
-    match /transactions/{transactionId} {
-      // Admins can read all transactions
-      allow read: if isAdmin();
 
-      // Users involved can create transactions (e.g., when they trigger an issue/return/donate)
-      // The rules on the 'books' collection are the primary gatekeeper.
-      // This is a more trusting rule, assuming book rules are tight.
-      allow create: if isOwner(request.resource.data.userId) || isAdmin();
+    // =====================================================================
+    // Transactions Collection
+    // =====================================================================
+    match /transactions/{transactionId} {
+      allow read: if isAdmin();
+      
+      // Only the user involved in the transaction can create it
+      allow create: if isSignedIn() && request.resource.data.userId == request.auth.uid;
       
       // Transactions are immutable
       allow update, delete: if false;
+    }
+
+    // =====================================================================
+    // Books Collection
+    // =====================================================================
+    match /books/{bookId} {
+      allow read: if isSignedIn();
+
+      // --- CREATE ---
+      allow create: if 
+        // Admins can add books directly
+        (isAdmin() && request.resource.data.status in ['available', 'maintenance', 'lost']) ||
+        // Users can submit a donation request
+        (isUser() && request.resource.data.status == 'donated_pending_approval' 
+                  && request.resource.data.donatedBy.userId == request.auth.uid
+                  && request.resource.data.donatedBy.date == request.time);
+
+      // --- UPDATE ---
+      allow update: if 
+        // Admins have broad update permissions
+        isAdmin() ||
+        
+        // Use case: User requests to issue a book
+        ( isUser() && resource.data.status in ['available', 'donated_approved']
+            && request.resource.data.status == 'issue_requested'
+            && request.resource.data.issueDetails.userId == request.auth.uid
+            && request.resource.data.issueDetails.issueDate == request.time
+            && request.resource.data.issueDetails.dueDate == null
+        ) ||
+        
+        // Use case: User requests to return their issued book
+        ( isUser() && resource.data.status == 'issued'
+            && resource.data.issueDetails.userId == request.auth.uid
+            && request.resource.data.status == 'return_requested'
+            && request.resource.data.diff(resource.data).affectedKeys().hasOnly(['status'])
+        ) ||
+        
+        // Use case: User renews a book (only dueDate changes)
+        ( isUser() && resource.data.status == 'issued'
+            && resource.data.issueDetails.userId == request.auth.uid
+            && resource.data.issueDetails.dueDate < request.time // Simplified renewal rule
+            && request.resource.data.issueDetails.dueDate > resource.data.issueDetails.dueDate
+            && request.resource.data.diff(resource.data).affectedKeys().hasOnly(['issueDetails.dueDate'])
+        );
+      
+      // --- DELETE ---
+      allow delete: if isAdmin();
     }
   }
 }
