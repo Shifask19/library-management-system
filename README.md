@@ -45,15 +45,6 @@ Follow these instructions to get the project up and running on your local machin
 
 ### 1. Set Up Environment Variables
 
-Before running the application, you need to configure your Firebase project credentials.
-
-1.  Create a Firebase project in the [Firebase Console](https://console.firebase.google.com/).
-2.  In your project settings, add a new Web App.
-3.  Copy the `firebaseConfig` object provided.
-4.  Create a file named `.env.local` in the root of the project directory.
-5.  Add your Firebase configuration to the `.env.local` file. It should look like this:
-
-    ```bash
     NEXT_PUBLIC_FIREBASE_API_KEY=your_api_key
     NEXT_PUBLIC_FIREBASE_AUTH_DOMAIN=your_auth_domain
     NEXT_PUBLIC_FIREBASE_PROJECT_ID=your_project_id
