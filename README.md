@@ -2,7 +2,6 @@
 
 Welcome to **PES Library Connect**, a modern, full-featured Library Management System built for the PES College of Engineering. This application provides a seamless digital experience for both students and library administrators, simplifying book circulation, donations, and management.
 
-![Landing Page](https://images.shiksha.com/mediadata/images/1546086232phplTZwW7.jpeg)
 
 ## ✨ Features
 
